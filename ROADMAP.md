@@ -110,13 +110,20 @@ about both.
 - ⚠️ Live Alpaca calls need network egress to `*.alpaca.markets` (blocked here; works locally
   with paper keys). Reconcile-on-startup is exercised in Phase 7 via `get_positions`.
 
-## Phase 7 — The autonomous runner
-- [ ] **Main loop / scheduler:** wake on schedule (near open/close for daily bars) → fetch data →
-      signals → risk → place/close orders. Use APScheduler/cron; respect the **market calendar**
-      (`pandas_market_calendars`).
-- [ ] **Logging + persistence:** structured logs, trade journal (DB/CSV), daily P&L snapshots.
-- [ ] **Monitoring/alerts:** notify on trades, errors, kill-switch (email/Slack/Telegram).
-- [ ] **Resilience:** handle API outages, restart-safe state, manual "flatten all" override.
+## Phase 7 — The autonomous runner ✅ (core) / ⏳ (ops hardening)
+- [x] **Main loop:** `TradingEngine.run_once()` (`autotrader/live/runner.py`) — reconcile →
+      load bars → manage exits → signals → risk + sizing → place entries. Dependency-injected so
+      it runs against `SimBroker` + synthetic bars in tests.
+- [x] **Scheduler:** `main()` wires `AlpacaBroker` + yfinance + an APScheduler cron job
+      (weekdays after the close) gated by a `pandas_market_calendars` trading-day check.
+- [x] **Restart-safe / idempotent:** positions reconciled from the broker each pass; orders keyed
+      on `client_order_id`; positions with no known exit plan are closed defensively.
+- [x] **Persistence:** in-memory trade `journal` of every entry/exit with reason.
+- Tests: `tests/test_live.py` (entries, no-pyramiding, halt, max-position cap, stop/max-hold/
+  unknown-position exits); verified end-to-end with the real `MomentumStrategy`.
+- [ ] **Ops hardening (next):** durable journal (JSONL/DB) + daily P&L snapshots; alerts
+      (email/Slack/Telegram) on trades/errors/kill-switch; API-outage retries; manual
+      "flatten all" command.
 
 ## Phase 8 — Paper trading validation
 - [ ] Run the full system on **Alpaca paper** for several weeks across market conditions.
