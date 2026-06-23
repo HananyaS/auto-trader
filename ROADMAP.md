@@ -58,12 +58,18 @@ about both.
 - ⚠️ Live fetch needs network egress to `query1.finance.yahoo.com` (blocked in this hosted
   env by policy; works locally or once allowlisted).
 
-## Phase 3 — Strategy & signals
-- [ ] Implement signals as **pure functions** (`bars -> signals`) so backtest and live are
-      identical.
-- [ ] Implement the **rule-based baseline** with 1–2 day exit logic (time exit + stop-loss +
-      take-profit).
-- [ ] Keep **parameters in config**; validate on out-of-sample data to avoid curve-fitting.
+## Phase 3 — Strategy & signals ✅
+- [x] Signals as **pure functions** (`Strategy.generate(bars) -> SignalSet`), side-effect free
+      (tested: input bars are never mutated) so backtest and live share one implementation.
+- [x] **Both baselines** implemented, long-only, emitting `Signal`s with 1–2 day exit logic
+      (stop-loss, take-profit, `max_hold_days`):
+  - `MomentumStrategy` — breakout above the prior N-day high (`autotrader/strategy/momentum.py`).
+  - `MeanReversionStrategy` — oversold short-period RSI entry (`autotrader/strategy/mean_reversion.py`).
+- [x] Pure `indicators` module (`rsi`, `prior_rolling_high`); strategy **parameters are
+      constructor args** so Phase 4 can sweep and validate them out-of-sample.
+- Tests: `tests/test_strategy.py` (indicators + entry/no-entry behavior on synthetic series).
+- *Next: decide entry/exit specifics empirically in Phase 4; finalize the Phase-0 hypothesis once
+  backtests pick the better baseline.*
 
 ## Phase 4 — Backtesting (make-or-break)
 - [ ] Adopt a backtester: **`vectorbt`** (fast sweeps) or **`backtrader`** (event-driven). A
