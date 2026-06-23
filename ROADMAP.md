@@ -46,12 +46,17 @@ about both.
       `.env.example` documents them; real `.env` is gitignored.
 - [x] Add `pytest` + `ruff`; config layer has passing tests (`tests/test_config.py`).
 
-## Phase 2 — Market data
-- [ ] Pull **historical daily (and optional intraday) bars** for your universe (Alpaca data API,
-      or `yfinance` for free daily data to prototype).
-- [ ] Build a **data layer**: fetch, **cache locally** (parquet/CSV), return clean DataFrames.
-- [ ] **Data hygiene:** adjusted prices (splits/dividends), missing bars, timezone alignment to
-      US market hours, survivorship-bias awareness.
+## Phase 2 — Market data ✅
+- [x] Pull **historical daily bars** via `yfinance` (`_fetch_yfinance`), behind an injectable
+      `Fetcher` so Alpaca data can be swapped in later without touching callers.
+- [x] Build a **data layer** (`autotrader/data/loader.py`): `load_bars()` fetches, **caches to
+      parquet**, refetches when the cache doesn't cover the window, and slices to the request.
+- [x] **Data hygiene** (`clean_bars`, pure/tested): split/dividend-adjusted prices
+      (`auto_adjust=True`), standardized OHLCV schema, sorted + de-duplicated tz-naive index,
+      dropped NaN rows. `sp500_symbols()` sources the universe (with a survivorship-bias note).
+- Tests: `tests/test_data_loader.py` (hygiene + cache logic, no network needed).
+- ⚠️ Live fetch needs network egress to `query1.finance.yahoo.com` (blocked in this hosted
+  env by policy; works locally or once allowlisted).
 
 ## Phase 3 — Strategy & signals
 - [ ] Implement signals as **pure functions** (`bars -> signals`) so backtest and live are
