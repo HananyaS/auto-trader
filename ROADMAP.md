@@ -121,29 +121,48 @@ about both.
 - [x] **Persistence:** in-memory trade `journal` of every entry/exit with reason.
 - Tests: `tests/test_live.py` (entries, no-pyramiding, halt, max-position cap, stop/max-hold/
   unknown-position exits); verified end-to-end with the real `MomentumStrategy`.
-- [ ] **Ops hardening (next):** durable journal (JSONL/DB) + daily P&L snapshots; alerts
-      (email/Slack/Telegram) on trades/errors/kill-switch; API-outage retries; manual
-      "flatten all" command.
+- [x] **Ops hardening:** durable **JSONL trade journal** (`journal_path`); **daily-loss
+      kill-switch** with start-of-day equity tracking (`reset_day`); **Telegram alerts**
+      (`live/notify.py`, pluggable `Notifier`, failures never crash the loop); manual
+      **`flatten_all()`** override; **CLI** (`python -m autotrader run|flatten|backtest`).
+- [ ] *Optional later:* API-outage retry/backoff around broker calls; daily P&L snapshot file.
 
-## Phase 8 — Paper trading validation
-- [ ] Run the full system on **Alpaca paper** for several weeks across market conditions.
-- [ ] **Compare paper fills to backtest expectations**; reconcile gaps before live.
-- [ ] **Gate:** advance only after paper meets Phase-0 criteria.
+## Phase 8 — Paper trading validation  *(tooling ready; you run it)*
+The code is complete and tested; these steps require your Alpaca paper keys, network access,
+and weeks of real market time, so they're run-and-observe (not executable in the sandbox).
+- [ ] Create an Alpaca **paper** account; put the keys in `.env` with `ALPACA_ENV=paper`.
+- [ ] (Optional) Set `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` for trade/kill-switch alerts.
+- [ ] First, **validate the edge offline**: `python -m autotrader backtest <symbols> --start … --end …`
+      for both `--strategy momentum` and `--strategy mean_reversion`; compare vs buy-and-hold SPY
+      out-of-sample. Keep the better baseline.
+- [ ] Run the scheduler: `python -m autotrader run --schedule` (or one pass with `run`). Let it
+      trade paper for several weeks across different conditions.
+- [ ] **Compare paper fills to backtest expectations** using the JSONL journal; reconcile gaps
+      (slippage assumptions, timing) before risking real money.
+- [ ] **Gate:** advance only after paper meets your Phase-0 success criteria.
 
-## Phase 9 — Live (small) & iterate
-- [ ] Switch execution to the **live endpoint with small capital** (same code path).
-- [ ] Keep kill-switch and daily-loss limits active; monitor closely.
-- [ ] **Scale gradually** as live tracks expectations.
+## Phase 9 — Live (small) & iterate  *(tooling ready; you run it)*
+- [ ] Flip `.env` to live Alpaca keys + `ALPACA_ENV=live` (same code path) and start with **small
+      capital**.
+- [ ] Keep the **kill-switch and risk limits** active; watch the alerts; know
+      `python -m autotrader flatten` closes everything fast.
+- [ ] **Scale gradually** only as live results track expectations.
 - [ ] Iterate; consider **ML only after** the rule-based baseline is proven (same validation
       discipline applies).
+- See the **Runbook** in `README.md` for exact commands.
 
 ---
 
-## Suggested dependencies
-`alpaca-py`, `pandas`, `numpy`, `yfinance`, `vectorbt` *or* `backtrader`,
-`pandas_market_calendars`, `APScheduler`, `python-dotenv`, `pytest`, `ruff`/`black`.
+## Dependencies (in `pyproject.toml`)
+`alpaca-py`, `pandas`, `numpy`, `yfinance`, `backtrader`, `pandas_market_calendars`,
+`APScheduler`, `python-dotenv`; dev: `pytest`, `ruff`, `black`. Telegram alerts use stdlib only.
 
-## Open choices
-- Backtesting library: **`vectorbt`** vs **`backtrader`**.
-- Baseline strategy: **momentum** vs **mean-reversion** (can prototype both in Phase 3).
-- Paid data feed (e.g. Polygon) later for intraday precision.
+## Status
+Phases 0–7 implemented and tested (**60 passing**, ruff clean). Phases 8–9 are operational —
+all tooling is built; they require your keys, network access, time, and (for 9) real capital.
+
+## Possible extensions later
+- Volatility-adjusted sizing; ATR-based stops.
+- Point-in-time S&P 500 membership to remove survivorship bias.
+- Paid data feed (e.g. Polygon) for intraday precision; Alpaca data feed in place of yfinance.
+- ML overlay — only after the rule-based baseline is proven.
