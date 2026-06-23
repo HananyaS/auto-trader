@@ -9,38 +9,42 @@ Most retail auto-trading projects fail not on engineering but on (a) overfit bac
 (b) ignored transaction costs / risk controls. The sequencing below is deliberately defensive
 about both.
 
-## Key decisions
-- **Strategy to start with:** a **rule-based** swing strategy (momentum or short-horizon
-  mean-reversion on liquid stocks/ETFs). Transparent and fast to backtest. **Defer ML** until a
-  rule-based baseline is profitable in paper trading.
+## Key decisions (locked)
+- **Strategy:** build **both** a momentum and a mean-reversion baseline as pure signal
+  functions, compare them in backtest, and keep whichever performs better on the 1–2 day
+  horizon. **Defer ML** until a rule-based baseline is profitable in paper trading.
+- **Universe:** **S&P 500 stocks** (mind survivorship bias when backtesting).
+- **Backtester:** **backtrader** (event-driven, realistic fills).
 - **Broker/data:** **Alpaca** — free paper-trading account with the *same* API as live,
   commission-free, fractional shares, Python SDK (`alpaca-py`). One code path for paper and live.
   (Interactive Brokers via `ib_insync` is the heavier-duty alternative.)
-- **Regulatory:** Under **$25k** in a margin account, the **Pattern Day Trader (PDT)** rule caps
-  you at 3 day-trades / 5 days. A 1–2 day *hold* usually avoids same-day round-trips, but make
-  position tracking PDT-aware so the bot never gets locked.
+- **Capital / regulatory:** account **under $25k** → **PDT-aware** (max 3 day-trades / 5
+  sessions). A 1–2 day *hold* usually avoids same-day round-trips, but position tracking is
+  PDT-aware so the bot never gets locked. Paper-first.
 
 ---
 
 ## Phase 0 — Define the edge & guardrails (before any code)
-- [ ] Write a one-paragraph **strategy hypothesis** (e.g. "buy ETFs showing X-day momentum, hold
-      1–2 days, exit on target/stop"). A bot needs an explicit edge, not just automation.
-- [ ] Pick a **universe**: start small and liquid — large-cap ETFs (SPY, QQQ, sector ETFs) or
-      S&P 500 names.
+- [ ] Write a one-paragraph **strategy hypothesis** for each baseline (momentum, mean-reversion).
+      A bot needs an explicit edge, not just automation. *(Finalize alongside Phase 3.)*
+- [x] Pick a **universe**: **S&P 500 stocks**.
 - [ ] Define **entry rules, exit rules, holding period, and position sizing** in plain English.
-- [ ] Define **risk limits**: max % per position, max concurrent positions, daily max loss /
-      kill-switch, max portfolio exposure. Non-negotiable guardrails.
+      *(Holding period = 1–2 days; rules finalized in Phase 3.)*
+- [x] Define **risk limits**: encoded as defaults in `config.py` / `.env.example`
+      (risk-per-trade, max position %, max concurrent positions, max exposure, daily-loss
+      kill-switch, PDT cap).
 - [ ] Write **success criteria** to advance between phases (e.g. backtest Sharpe > 1 after costs
-      before paper; positive paper P&L over N weeks before live).
+      before paper; positive paper P&L over N weeks before live). *(Finalize in Phase 4.)*
 
-## Phase 1 — Project scaffolding
-- [ ] Initialize Python project: `pyproject.toml` / `requirements.txt`, virtualenv, `.gitignore`
-      (ignore `.env`, data caches, `__pycache__`).
-- [ ] Expand this README with strategy hypothesis and run instructions.
-- [ ] Package layout: `data/`, `strategy/`, `backtest/`, `risk/`, `execution/`, `live/`,
-      `config/`, `tests/`.
-- [ ] **Secrets:** API keys in `.env` / env vars via `python-dotenv`. Never commit keys.
-- [ ] Add `pytest` + `ruff`/`black`; lightweight CI is a plus.
+## Phase 1 — Project scaffolding ✅
+- [x] Initialize Python project: `pyproject.toml`, `.gitignore` (ignores `.env`, data caches,
+      `__pycache__`).
+- [x] Expand README with orientation + run instructions.
+- [x] Package layout under `autotrader/`: `data/`, `strategy/`, `backtest/`, `risk/`,
+      `execution/`, `live/`, plus `config.py` and `tests/`.
+- [x] **Secrets:** `config.py` loads keys from env / `.env` via `python-dotenv`;
+      `.env.example` documents them; real `.env` is gitignored.
+- [x] Add `pytest` + `ruff`; config layer has passing tests (`tests/test_config.py`).
 
 ## Phase 2 — Market data
 - [ ] Pull **historical daily (and optional intraday) bars** for your universe (Alpaca data API,
