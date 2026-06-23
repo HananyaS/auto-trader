@@ -19,7 +19,12 @@ from dataclasses import dataclass
 import backtrader as bt
 import pandas as pd
 
-from autotrader.backtest.metrics import annualized_sharpe, annualized_sortino
+from autotrader.backtest.metrics import (
+    annualized_sharpe,
+    annualized_sortino,
+    expectancy,
+    profit_factor,
+)
 from autotrader.config import RiskLimits
 from autotrader.risk.sizing import position_size
 from autotrader.strategy.base import Side, Signal, SignalSet, Strategy
@@ -38,6 +43,60 @@ class BacktestResult:
     win_rate: float
     num_trades: int
     final_value: float
+    # Fair-comparison + edge-detection extras (defaulted; older callers unaffected).
+    exposure: float = 0.0  # avg fraction of equity deployed (cash drag indicator)
+    expectancy: float = 0.0  # mean per-trade return
+    profit_factor: float = 0.0  # gross wins / gross losses
+    trade_returns: tuple[float, ...] = ()  # per-closed-trade returns (for significance)
+
+    @property
+    def return_on_exposure(self) -> float:
+        """Total return normalized by average exposure (undoes cash drag)."""
+        return self.total_return / self.exposure if self.exposure > 1e-9 else 0.0
+
+
+class _ExposureAnalyzer(bt.Analyzer):
+    """Average fraction of account equity deployed in positions, across all bars."""
+
+    def __init__(self) -> None:
+        self._frac_sum = 0.0
+        self._bars = 0
+
+    def next(self) -> None:
+        value = self.strategy.broker.getvalue()
+        if value <= 0:
+            return
+        deployed = sum(
+            self.strategy.getposition(d).size * d.close[0] for d in self.strategy.datas
+        )
+        self._frac_sum += deployed / value
+        self._bars += 1
+
+    def get_analysis(self):
+        return {"exposure": (self._frac_sum / self._bars) if self._bars else 0.0}
+
+
+class _TradeReturns(bt.Analyzer):
+    """Per-closed-trade percentage returns: pnlcomm / entry notional.
+
+    The entry notional is captured on open (a closed trade reports size 0), keyed
+    by trade ref, then consumed when the trade closes.
+    """
+
+    def __init__(self) -> None:
+        self._returns: list[float] = []
+        self._basis: dict[int, float] = {}
+
+    def notify_trade(self, trade) -> None:
+        if trade.justopened:
+            self._basis[trade.ref] = abs(trade.price * trade.size)
+        if trade.isclosed:
+            basis = self._basis.pop(trade.ref, None)
+            if basis:
+                self._returns.append(trade.pnlcomm / basis)
+
+    def get_analysis(self):
+        return {"returns": list(self._returns)}
 
 
 def _index_signals_by_date(signals: SignalSet) -> dict[str, dict[object, Signal]]:
@@ -143,6 +202,8 @@ def run_backtest(
     cerebro.addanalyzer(bt.analyzers.TimeReturn, timeframe=bt.TimeFrame.Days, _name="treturn")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="dd")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+    cerebro.addanalyzer(_ExposureAnalyzer, _name="exposure")
+    cerebro.addanalyzer(_TradeReturns, _name="tradereturns")
 
     strat = cerebro.run()[0]
     final_value = float(cerebro.broker.getvalue())
@@ -150,6 +211,8 @@ def run_backtest(
     daily = pd.Series(strat.analyzers.treturn.get_analysis())
     dd = strat.analyzers.dd.get_analysis()
     trades = strat.analyzers.trades.get_analysis()
+    exposure = float(strat.analyzers.exposure.get_analysis()["exposure"])
+    trade_returns = tuple(strat.analyzers.tradereturns.get_analysis()["returns"])
 
     total = trades.get("total", {}).get("closed", 0) or 0
     won = trades.get("won", {}).get("total", 0) or 0
@@ -163,4 +226,8 @@ def run_backtest(
         win_rate=win_rate,
         num_trades=int(total),
         final_value=final_value,
+        exposure=exposure,
+        expectancy=expectancy(trade_returns),
+        profit_factor=profit_factor(trade_returns),
+        trade_returns=trade_returns,
     )

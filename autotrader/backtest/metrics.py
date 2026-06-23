@@ -36,6 +36,56 @@ def buy_and_hold_return(close: pd.Series) -> float:
     return float(c.iloc[-1] / c.iloc[0] - 1.0)
 
 
+def expectancy(trade_returns) -> float:
+    """Mean per-trade return (the average edge realized per trade)."""
+    r = pd.Series(trade_returns, dtype=float)
+    return float(r.mean()) if len(r) else 0.0
+
+
+def profit_factor(trade_returns) -> float:
+    """Gross wins / gross losses. ``inf`` if no losses, ``0`` if no wins."""
+    r = pd.Series(trade_returns, dtype=float)
+    wins = r[r > 0].sum()
+    losses = -r[r < 0].sum()
+    if losses == 0:
+        return float("inf") if wins > 0 else 0.0
+    return float(wins / losses)
+
+
+def t_stat(trade_returns) -> float:
+    """One-sample t-statistic of per-trade returns vs 0 (edge significance)."""
+    r = pd.Series(trade_returns, dtype=float).dropna()
+    std = r.std(ddof=1)
+    if len(r) < 2 or std < 1e-12:
+        return 0.0
+    return float(r.mean() / (std / np.sqrt(len(r))))
+
+
+def bootstrap_ci(
+    trade_returns, *, n: int = 10_000, seed: int = 0, alpha: float = 0.05
+) -> tuple[float, float]:
+    """Bootstrap CI for the mean per-trade return. Edge is 'real-ish' if it excludes 0."""
+    r = pd.Series(trade_returns, dtype=float).dropna().to_numpy()
+    if len(r) < 2:
+        return (0.0, 0.0)
+    rng = np.random.default_rng(seed)
+    means = rng.choice(r, size=(n, len(r)), replace=True).mean(axis=1)
+    lo, hi = np.quantile(means, [alpha / 2, 1 - alpha / 2])
+    return (float(lo), float(hi))
+
+
+def percentile_rank(value: float, distribution) -> float:
+    """Fraction of the distribution that ``value`` exceeds, in [0, 1].
+
+    Used to score a strategy against a null (e.g. random-entry) distribution:
+    0.95 means it beat 95% of the null runs.
+    """
+    d = pd.Series(distribution, dtype=float).dropna().to_numpy()
+    if len(d) == 0:
+        return 0.0
+    return float((d < value).mean())
+
+
 def train_test_split(
     bars: dict[str, pd.DataFrame], split: str
 ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
