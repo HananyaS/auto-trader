@@ -97,12 +97,18 @@ about both.
 - Tests: `tests/test_risk.py` (sizing math + every guardrail branch).
 - *Note: guardrails are enforced live in Phase 7's runner loop.*
 
-## Phase 6 — Execution layer (paper first)
-- [ ] Broker-agnostic **execution interface** (`submit_order`, `get_positions`, `get_account`,
-      `cancel`); implement with **`alpaca-py` against the paper endpoint**.
-- [ ] Order mechanics: order types, **idempotency / no duplicate orders on restart**, state
-      reconciliation, retries, partial fills.
-- [ ] **Reconcile on startup:** read actual broker positions before acting.
+## Phase 6 — Execution layer (paper first) ✅
+- [x] Broker-agnostic **execution interface** (`Broker` protocol: `submit_order`, `get_positions`,
+      `get_account`, `cancel`).
+- [x] **`AlpacaBroker`** (`execution/alpaca.py`): alpaca-py adapter (lazy import), paper/live by
+      config only; market + limit orders; surfaces `daytrade_count` / `pattern_day_trader`.
+- [x] **`SimBroker`** (`execution/sim.py`): in-memory implementation for tests/dry-runs (avg-price
+      tracking, equity, fills).
+- [x] **Idempotency / no duplicate orders on restart:** both brokers key on `client_order_id`
+      (Alpaca rejects duplicates; SimBroker no-ops and returns the original id).
+- Tests: `tests/test_execution.py` (SimBroker fills/idempotency + AlpacaBroker creds guard).
+- ⚠️ Live Alpaca calls need network egress to `*.alpaca.markets` (blocked here; works locally
+  with paper keys). Reconcile-on-startup is exercised in Phase 7 via `get_positions`.
 
 ## Phase 7 — The autonomous runner
 - [ ] **Main loop / scheduler:** wake on schedule (near open/close for daily bars) → fetch data →

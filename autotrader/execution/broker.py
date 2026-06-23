@@ -20,6 +20,8 @@ class Order:
     qty: int
     side: Side
     client_order_id: str  # for idempotency: same id => never double-submit
+    order_type: str = "market"  # "market" or "limit"
+    limit_price: float | None = None
 
 
 @dataclass(frozen=True)
