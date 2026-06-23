@@ -82,10 +82,13 @@ about both.
       drawdown**, win rate, trade count, final value (`BacktestResult`).
 - [x] Anti-overfit tooling: `train_test_split()` and `buy_and_hold_return()` benchmark helper in
       `metrics.py`.
-- Tests: `tests/test_backtest.py` (pure metrics + runner executes/skips trades as expected).
-- [ ] **Gate (manual, needs real data):** run on real S&P 500 bars, compare both baselines vs
-      buy-and-hold SPY out-of-sample *after costs*, and only advance if criteria are met.
-      *(Blocked in this env by the data-egress policy; run locally.)*
+- Tests: `tests/test_backtest.py` (pure metrics + runner executes/skips trades + empty-feed guard).
+- [x] **Ran on real S&P 500 data** (2013–2018, `scripts/backtest_sp500.py` + `load_csv_bars`):
+      out-of-sample both baselines are positive after costs (momentum Sharpe ~1.8, mean-reversion
+      ~1.8). Surfaced & fixed a real bug — an empty data feed silently halted backtrader.
+- [ ] **Gate (still yours):** these numbers carry **selection + survivorship bias** (top-liquidity,
+      full-coverage universe chosen with hindsight) and aren't dividend-adjusted, so treat them as
+      a plumbing check, not a validated edge. Re-run with point-in-time membership before trusting.
 
 ## Phase 5 — Risk & portfolio management ✅
 - [x] **Position sizer** (`autotrader/risk/sizing.py`): fixed-fractional risk model

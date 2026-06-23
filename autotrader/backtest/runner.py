@@ -13,6 +13,7 @@ count) come from a mix of backtrader analyzers and our pure ``metrics`` helpers.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import backtrader as bt
@@ -22,6 +23,8 @@ from autotrader.backtest.metrics import annualized_sharpe, annualized_sortino
 from autotrader.config import RiskLimits
 from autotrader.risk.sizing import position_size
 from autotrader.strategy.base import Side, Signal, SignalSet, Strategy
+
+log = logging.getLogger("autotrader.backtest")
 
 
 @dataclass(frozen=True)
@@ -120,10 +123,17 @@ def run_backtest(
     limits = limits or RiskLimits()
 
     cerebro = bt.Cerebro(stdstats=False)
+    feeds_added = 0
     for symbol, df in bars.items():
-        feed = bt.feeds.PandasData(dataname=df, openinterest=-1)
-        cerebro.adddata(feed, name=symbol)
-
+        # An empty/degenerate feed makes backtrader's next() never fire, silently
+        # halting the *whole* run, so skip such symbols defensively.
+        if df is None or len(df) < 2:
+            log.warning("skipping %s: only %d bar(s)", symbol, 0 if df is None else len(df))
+            continue
+        cerebro.adddata(bt.feeds.PandasData(dataname=df, openinterest=-1), name=symbol)
+        feeds_added += 1
+    if feeds_added == 0:
+        raise ValueError("no usable data feeds (all symbols empty/too short)")
     cerebro.addstrategy(_SignalDriven, signals=signals, limits=limits, alloc_pct=alloc_pct)
     cerebro.broker.setcash(starting_cash)
     cerebro.broker.setcommission(commission=commission)

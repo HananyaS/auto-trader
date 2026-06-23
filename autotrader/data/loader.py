@@ -158,3 +158,33 @@ def sp500_symbols(*, use_cache: bool = True, cache_dir: Path = DEFAULT_CACHE_DIR
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"symbol": symbols}).to_parquet(path)
     return symbols
+
+
+def load_csv_bars(
+    path: str,
+    *,
+    symbol_col: str = "Name",
+    date_col: str = "date",
+    symbols: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    min_bars: int = 2,
+) -> Bars:
+    """Load ``Bars`` from a long-format OHLCV CSV (date, OHLCV, symbol per row).
+
+    Handy for offline backtests on a bundled dataset. Each symbol is cleaned via
+    ``clean_bars`` and short/empty series are dropped (``min_bars``), which also
+    avoids the backtrader "empty feed halts the run" gotcha.
+    """
+    raw = pd.read_csv(path, parse_dates=[date_col])
+    if symbols is not None:
+        raw = raw[raw[symbol_col].isin(symbols)]
+
+    out: Bars = {}
+    for symbol, group in raw.groupby(symbol_col):
+        df = clean_bars(group.set_index(date_col))
+        if start is not None or end is not None:
+            df = df.loc[pd.Timestamp(start) if start else None : pd.Timestamp(end) if end else None]
+        if len(df) >= min_bars:
+            out[str(symbol)] = df
+    return out

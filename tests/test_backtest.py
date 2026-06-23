@@ -84,3 +84,21 @@ def test_run_backtest_no_trades_in_downtrend():
 
     assert result.num_trades == 0
     assert result.total_return == 0.0  # untouched capital
+
+
+def test_run_backtest_skips_empty_feeds():
+    # A single empty feed otherwise makes backtrader's next() never fire, silently
+    # halting the whole run (real-world cause: a ticker with no bars in the window).
+    close = [100.0] * 25 + list(102 + 2 * np.arange(30, dtype=float))
+    bars = {
+        "UP": _frame(close),
+        "EMPTY": _frame(close).iloc[0:0],  # zero rows
+    }
+    result = run_backtest(bars, MomentumStrategy(lookback=20), starting_cash=10_000)
+    assert result.num_trades >= 1  # the good feed still trades
+
+
+def test_run_backtest_raises_when_all_feeds_unusable():
+    bars = {"A": _frame([100.0] * 25).iloc[0:0], "B": _frame([100.0]).iloc[0:0]}
+    with pytest.raises(ValueError, match="no usable data feeds"):
+        run_backtest(bars, MomentumStrategy(), starting_cash=10_000)

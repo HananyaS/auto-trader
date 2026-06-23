@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from autotrader.data.loader import clean_bars, load_bars
+from autotrader.data.loader import clean_bars, load_bars, load_csv_bars
 
 
 def _raw_frame(dates, *, messy=False):
@@ -109,3 +109,36 @@ def test_load_bars_slices_to_requested_window(tmp_path):
     bars = result["SPY"]
     assert bars.index.min() >= pd.Timestamp("2024-01-05")
     assert bars.index.max() <= pd.Timestamp("2024-01-10")
+
+
+def test_load_csv_bars_long_format(tmp_path):
+    # long-format CSV: date, OHLCV, symbol per row (two symbols, one too short)
+    rows = []
+    for d in pd.date_range("2024-01-01", periods=5):
+        rows.append([d, 10, 11, 9, 10, 100, "AAA"])
+    rows.append([pd.Timestamp("2024-01-01"), 10, 11, 9, 10, 100, "TINY"])  # 1 bar
+    csv = tmp_path / "prices.csv"
+    pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume", "Name"]).to_csv(
+        csv, index=False
+    )
+
+    bars = load_csv_bars(str(csv), min_bars=2)
+    assert set(bars) == {"AAA"}  # TINY dropped for being too short
+    assert list(bars["AAA"].columns) == ["open", "high", "low", "close", "volume"]
+    assert len(bars["AAA"]) == 5
+
+
+def test_load_csv_bars_symbol_and_date_filter(tmp_path):
+    rows = []
+    for sym in ("AAA", "BBB"):
+        for d in pd.date_range("2024-01-01", periods=10):
+            rows.append([d, 10, 11, 9, 10, 100, sym])
+    csv = tmp_path / "prices.csv"
+    pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume", "Name"]).to_csv(
+        csv, index=False
+    )
+
+    bars = load_csv_bars(str(csv), symbols=["AAA"], start="2024-01-03", end="2024-01-06")
+    assert set(bars) == {"AAA"}
+    assert bars["AAA"].index.min() == pd.Timestamp("2024-01-03")
+    assert bars["AAA"].index.max() == pd.Timestamp("2024-01-06")
