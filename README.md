@@ -17,18 +17,36 @@ The full build is laid out as a step-by-step to-do list in **[ROADMAP.md](./ROAD
 ## Project structure
 ```
 autotrader/
-  __main__.py      # CLI: python -m autotrader run|flatten|backtest
+  __main__.py      # CLI: python -m autotrader run|flatten|backtest|screen
   config.py        # settings + secrets loading (env / .env), risk limits
-  data/            # market data fetch + caching            (Phase 2)
-  strategy/        # pure signal functions: momentum, mean_reversion (Phase 3)
-  backtest/        # backtrader runner + metrics             (Phase 4)
-  risk/            # position sizing + guardrails (PDT-aware)(Phase 5)
-  execution/       # broker-agnostic interface + Alpaca + SimBroker (Phase 6)
-  live/            # autonomous engine, scheduler, Telegram alerts  (Phase 7)
-tests/             # pytest suite (60 tests, no network needed)
+  data/            # market data fetch + caching; NASDAQ universe + EOD fetcher
+  strategy/        # pure signals: momentum, mean_reversion, screener (+ indicators)
+  backtest/        # backtrader runner + metrics
+  risk/            # position sizing + guardrails (PDT-aware)
+  execution/       # broker-agnostic interface + Alpaca + SimBroker
+  live/            # autonomous engine, scheduler, Telegram alerts
+tests/             # pytest suite (82 tests, no network needed)
 ```
 Phases 0–7 are implemented and tested; Phases 8–9 are operational (paper → live) and need your
 keys, network, and time — see the runbook below.
+
+## NASDAQ screener
+The live default is a **multi-pattern screener** that scans the NASDAQ each day (incl. mid/small
+caps), ranks candidates by a composite score, and feeds the best into the engine (best-conviction
+first, position size scaled by score). Patterns, in two buckets:
+- *Slow / high-confidence:* RSI(2) mean-reversion, pullback-to-20MA, Bollinger reversion, 3-bar reversal.
+- *Fast / high-tempo:* 52-week-high + RVOL breakout, volume-spike breakout, gap-fill.
+
+Cross-cutting filters (min dollar-volume, ATR% volatility cap) keep small caps tradeable. It plugs
+into the existing `Strategy` protocol, so it runs in both `run_backtest` and the live engine.
+```bash
+python -m autotrader screen --limit 300 --top 20   # today's ranked candidates (live data)
+python scripts/screen_nasdaq.py --limit 80          # backtest on REAL small/mid-cap NASDAQ data
+```
+Backtest data comes from GitHub-hosted datasets (finance APIs are often egress-blocked): the
+NASDAQ universe+metadata (`rreichel3/US-Stock-Symbols`) and ~10.8k US stocks' adjusted daily bars
+(`wumiq/us_stock_eod`, through 2022). ⚠️ Those bars are stale (2022) and symbols-as-of-2022
+(partial survivorship bias) — backtest is evidence, not proof; live uses fresh Alpaca data.
 
 ## Getting started (development)
 ```bash

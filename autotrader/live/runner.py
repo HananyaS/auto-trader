@@ -41,6 +41,18 @@ log = logging.getLogger("autotrader.live")
 Bars = dict[str, pd.DataFrame]
 
 
+def _scale_by_score(qty: int, score: float, *, floor: float = 0.5) -> int:
+    """Scale a risk-sized qty by conviction into [floor*qty, qty].
+
+    ``score == 0.0`` (legacy momentum/mean-reversion signals) returns ``qty``
+    unchanged. Scaling only shrinks vs the risk cap, so all guardrails stay hard.
+    """
+    if score <= 0.0:
+        return qty
+    factor = floor + (1.0 - floor) * min(max(score, 0.0), 1.0)
+    return int(qty * factor)
+
+
 @dataclass
 class _OpenPlan:
     """Exit plan recorded when the engine opens a position."""
@@ -157,7 +169,10 @@ class TradingEngine:
         )
 
         signals = self.strategy.generate(bars)
-        count = 0
+
+        # Collect today's BUY candidates, then act on the highest-conviction first
+        # so capital goes to the best names when position/exposure limits bind.
+        candidates = []
         for symbol, sigs in signals.items():
             df = bars.get(symbol)
             if df is None or df.empty or symbol in positions:
@@ -166,16 +181,19 @@ class TradingEngine:
             todays = [
                 s for s in sigs if pd.Timestamp(s.timestamp) == last_date and s.side is Side.BUY
             ]
-            if not todays:
-                continue
+            if todays:
+                candidates.append((symbol, df, last_date, todays[-1]))
+        candidates.sort(key=lambda c: c[3].score, reverse=True)
+
+        count = 0
+        for symbol, df, last_date, sig in candidates:
             if not can_open_new_position(state, self.limits):
                 break
-
-            sig = todays[-1]
             price = float(df["close"].iloc[-1])
             if sig.stop_loss is None or sig.stop_loss >= price:
                 continue
             qty = position_size(equity, price, sig.stop_loss, self.limits)
+            qty = _scale_by_score(qty, sig.score)
             if qty < 1:
                 continue
 
@@ -188,7 +206,7 @@ class TradingEngine:
                 max_hold=sig.max_hold_days,
             )
             state.open_positions += 1
-            self._record("entry", symbol, qty, price, last_date, "signal")
+            self._record("entry", symbol, qty, price, last_date, sig.pattern or "signal")
             self._notify(f"BUY {qty} {symbol} @ {price:.2f}")
             count += 1
         return count
@@ -240,23 +258,23 @@ def _telegram_from_env():  # pragma: no cover - wiring
 
 
 def build_engine(settings, *, journal_path="journal/trades.jsonl"):  # pragma: no cover - wiring
-    """Assemble the live TradingEngine from settings (real Alpaca + yfinance)."""
+    """Assemble the live TradingEngine: NASDAQ-wide screener over Alpaca data."""
     import datetime as dt
 
-    from autotrader.data.loader import load_bars, sp500_symbols
+    from autotrader.data.loader import load_bars, nasdaq_symbols
     from autotrader.execution.alpaca import AlpacaBroker
-    from autotrader.strategy.momentum import MomentumStrategy
+    from autotrader.strategy.screener import ScreenerStrategy
 
-    universe = sp500_symbols()
+    universe = nasdaq_symbols()  # liquid, tradeable NASDAQ names
 
     def bar_loader() -> Bars:
         end = dt.date.today()
-        start = end - dt.timedelta(days=200)
+        start = end - dt.timedelta(days=400)  # enough history for 52-week patterns
         return load_bars(universe, start.isoformat(), end.isoformat())
 
     return TradingEngine(
         broker=AlpacaBroker(settings),
-        strategy=MomentumStrategy(),
+        strategy=ScreenerStrategy(),
         bar_loader=bar_loader,
         limits=settings.risk,
         journal_path=journal_path,

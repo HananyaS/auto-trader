@@ -38,3 +38,69 @@ def prior_rolling_high(series: pd.Series, window: int) -> pd.Series:
     if window < 1:
         raise ValueError("window must be >= 1")
     return series.shift(1).rolling(window).max()
+
+
+def sma(series: pd.Series, period: int) -> pd.Series:
+    """Simple moving average."""
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    return series.rolling(period).mean()
+
+
+def ema(series: pd.Series, period: int) -> pd.Series:
+    """Exponential moving average (span = period)."""
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    return series.ewm(span=period, min_periods=period, adjust=False).mean()
+
+
+def true_range(df: pd.DataFrame) -> pd.Series:
+    """Wilder's True Range = max(H-L, |H-prevC|, |L-prevC|), row-wise."""
+    prev_close = df["close"].shift(1)
+    hl = df["high"] - df["low"]
+    hc = (df["high"] - prev_close).abs()
+    lc = (df["low"] - prev_close).abs()
+    return pd.concat([hl, hc, lc], axis=1).max(axis=1)
+
+
+def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Average True Range (Wilder smoothing of true range)."""
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    tr = true_range(df)
+    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
+def bollinger(
+    series: pd.Series, period: int = 20, num_std: float = 2.0
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Bollinger Bands -> (lower, mid, upper). ``mid`` is the SMA; bands are ±num_std·σ."""
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    mid = series.rolling(period).mean()
+    std = series.rolling(period).std(ddof=0)
+    return mid - num_std * std, mid, mid + num_std * std
+
+
+def rvol(volume: pd.Series, period: int = 20) -> pd.Series:
+    """Relative volume = today's volume / average of the *prior* ``period`` bars.
+
+    Uses ``shift(1)`` so today's own volume is excluded from the baseline
+    (avoids look-ahead/self-reference).
+    """
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    baseline = volume.rolling(period).mean().shift(1)
+    return volume / baseline
+
+
+def adr_pct(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """Average Daily Range as a percent: mean(high/low - 1) over ``period``, ×100."""
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    return ((df["high"] / df["low"] - 1.0).rolling(period).mean()) * 100.0
+
+
+def gap_pct(df: pd.DataFrame) -> pd.Series:
+    """Overnight gap as a fraction: today's open / prior close - 1."""
+    return df["open"] / df["close"].shift(1) - 1.0

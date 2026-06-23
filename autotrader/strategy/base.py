@@ -31,6 +31,9 @@ class Signal:
     stop_loss: float | None = None
     take_profit: float | None = None
     max_hold_days: int = 2
+    # Screener ranking metadata; 0.0 == legacy "unscored" (momentum/mean-reversion).
+    score: float = 0.0
+    pattern: str | None = None
 
 
 # {symbol: [Signal, ...]} produced for a backtest window or a single live bar.

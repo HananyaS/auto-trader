@@ -12,11 +12,14 @@ Design notes:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
 import pandas as pd
+
+log = logging.getLogger("autotrader.data")
 
 # Standardized OHLCV schema every consumer (strategy, backtest) can rely on.
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
@@ -105,12 +108,14 @@ def load_bars(
     use_cache: bool = True,
     cache_dir: Path = DEFAULT_CACHE_DIR,
     fetcher: Fetcher | Callable[..., pd.DataFrame] | None = None,
+    skip_errors: bool = True,
 ) -> Bars:
     """Return ``{symbol: cleaned OHLCV}`` for the window, caching to parquet.
 
     On a cache hit that covers the window we read from disk; otherwise we fetch,
-    clean, persist, and slice. Symbols that fail to load are skipped (logged via
-    the returned dict simply omitting them) so one bad ticker can't abort a run.
+    clean, persist, and slice. With ``skip_errors`` (default), a symbol that fails
+    to fetch (e.g. a delisted ticker 404) is logged and omitted so one bad ticker
+    can't abort a market-wide scan; set False to surface the exception.
     """
     fetch = fetcher or _fetch_yfinance
     cache_dir = Path(cache_dir)
@@ -126,8 +131,14 @@ def load_bars(
                 df = cached
 
         if df is None:
-            raw = fetch(symbol, start, end, timeframe)
-            df = clean_bars(raw)
+            try:
+                raw = fetch(symbol, start, end, timeframe)
+                df = clean_bars(raw)
+            except Exception as exc:  # noqa: BLE001 - one bad ticker shouldn't abort
+                if not skip_errors:
+                    raise
+                log.warning("skipping %s: %s", symbol, exc)
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             df.to_parquet(path)
 
@@ -188,3 +199,124 @@ def load_csv_bars(
         if len(df) >= min_bars:
             out[str(symbol)] = df
     return out
+
+
+# --- NASDAQ universe + a GitHub-hosted EOD fetcher (Screener feature) ----------
+
+# Full NASDAQ listing with metadata (marketCap, volume, sector); current snapshot.
+NASDAQ_UNIVERSE_URL = (
+    "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/"
+    "nasdaq/nasdaq_full_tickers.json"
+)
+
+
+def _http_get(url: str, *, retries: int = 4, timeout: int = 30) -> bytes:
+    """Fetch a URL robustly: urllib with retries, then a curl fallback.
+
+    Some proxied environments truncate large responses under urllib (IncompleteRead)
+    while curl handles them, so we fall back to curl if available.
+    """
+    import time
+    import urllib.request
+
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - https
+                return resp.read()
+        except Exception as exc:  # noqa: BLE001 - retry any transient failure
+            last = exc
+            time.sleep(min(2**attempt, 8))
+
+    import shutil
+    import subprocess
+
+    if shutil.which("curl"):
+        out = subprocess.run(  # noqa: S603
+            ["curl", "-fsSL", "--max-time", str(timeout), url],  # noqa: S607
+            capture_output=True,
+            timeout=timeout + 10,
+        )
+        if out.returncode == 0 and out.stdout:
+            return out.stdout
+        last = RuntimeError(f"curl exited {out.returncode}: {out.stderr.decode()[:200]}")
+    raise RuntimeError(f"failed to fetch {url} after {retries} attempts: {last}")
+
+
+def nasdaq_universe(*, use_cache: bool = True, cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
+    """Return the NASDAQ universe with metadata, indexed by symbol.
+
+    Columns include ``marketCap`` and ``volume`` (coerced to numeric). Cached to
+    parquet. NOTE: this is a *current* snapshot, not point-in-time membership.
+    """
+    import io
+
+    cache_dir = Path(cache_dir)
+    path = cache_dir / "nasdaq_universe.parquet"
+    if use_cache and path.exists():
+        return pd.read_parquet(path)
+
+    df = pd.read_json(io.BytesIO(_http_get(NASDAQ_UNIVERSE_URL)))
+    for col in ("marketCap", "volume", "lastsale"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(r"[$,]", "", regex=True), errors="coerce"
+            )
+    df = df.set_index("symbol")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path)
+    return df
+
+
+def nasdaq_symbols(
+    *,
+    min_market_cap: float = 3e8,
+    min_dollar_volume: float = 1e7,
+    exclude_suffixes: tuple[str, ...] = ("W", "U", "R"),
+    limit: int | None = None,
+    use_cache: bool = True,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+) -> list[str]:
+    """Tradeable NASDAQ tickers: cheap pre-filter before fetching bars.
+
+    Drops tiny caps, illiquid names, and SPAC warrant/unit/right tickers (which
+    usually end in W/U/R). Sorted by descending dollar volume so ``limit`` keeps
+    the most liquid names.
+    """
+    df = nasdaq_universe(use_cache=use_cache, cache_dir=cache_dir).copy()
+    df["dollar_volume"] = df.get("lastsale", 0) * df.get("volume", 0)
+    mask = (df["marketCap"].fillna(0) >= min_market_cap) & (
+        df["dollar_volume"].fillna(0) >= min_dollar_volume
+    )
+    df = df[mask]
+    symbols = [s for s in df.sort_values("dollar_volume", ascending=False).index if "$" not in s]
+    symbols = [s for s in symbols if not s.endswith(exclude_suffixes)]
+    return symbols[:limit] if limit else symbols
+
+
+# Per-ticker EOD CSVs: <FIRST_LETTER>/<TICKER>.csv with an "Adj Close" column.
+EOD_REPO = "wumiq/us_stock_eod"
+
+
+def make_eod_fetcher(repo: str = EOD_REPO) -> Fetcher:
+    """Build a ``Fetcher`` that pulls adjusted daily bars from a GitHub EOD repo.
+
+    The repo stores split/dividend-adjusted CSVs; we map ``Adj Close`` -> ``close``
+    so backtests use adjusted prices. Plug into ``load_bars(..., fetcher=...)`` to
+    get parquet caching + hygiene for free.
+    """
+    import io
+
+    base = f"https://raw.githubusercontent.com/{repo}/main"
+
+    def fetch(symbol: str, start: str, end: str, timeframe: str) -> pd.DataFrame:
+        url = f"{base}/{symbol[0].upper()}/{symbol.upper()}.csv"
+        raw = pd.read_csv(io.BytesIO(_http_get(url)), parse_dates=["Date"]).set_index("Date")
+        if "Adj Close" in raw.columns:
+            raw = raw.drop(columns=["Close"]).rename(columns={"Adj Close": "Close"})
+        raw = raw.loc[pd.Timestamp(start) : pd.Timestamp(end)]
+        if raw.empty:
+            raise ValueError(f"no data for {symbol} in [{start}..{end}]")
+        return raw
+
+    return fetch
