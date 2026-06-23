@@ -87,11 +87,15 @@ about both.
       buy-and-hold SPY out-of-sample *after costs*, and only advance if criteria are met.
       *(Blocked in this env by the data-egress policy; run locally.)*
 
-## Phase 5 — Risk & portfolio management
-- [ ] **Position sizer** (fixed-fractional or volatility-adjusted) shared by backtest and live.
-- [ ] **Risk guardrails as code:** per-trade stop-loss, daily-loss kill-switch, max concurrent
-      positions, max exposure, global halt flag.
-- [ ] **PDT-aware** position tracking.
+## Phase 5 — Risk & portfolio management ✅
+- [x] **Position sizer** (`autotrader/risk/sizing.py`): fixed-fractional risk model
+      (risk_per_trade of equity over entry-stop distance), clamped by max_position_pct. **Wired
+      into the backtest runner**, so backtest and live size positions identically.
+- [x] **Risk guardrails as code** (`autotrader/risk/limits.py`): `RiskState` + `can_open_new_position`
+      enforcing global halt flag, daily-loss kill-switch, max concurrent positions, max exposure.
+- [x] **PDT-aware** tracking: `would_breach_pdt` against the day-trade count (<$25k accounts).
+- Tests: `tests/test_risk.py` (sizing math + every guardrail branch).
+- *Note: guardrails are enforced live in Phase 7's runner loop.*
 
 ## Phase 6 — Execution layer (paper first)
 - [ ] Broker-agnostic **execution interface** (`submit_order`, `get_positions`, `get_account`,

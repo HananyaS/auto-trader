@@ -19,6 +19,8 @@ import backtrader as bt
 import pandas as pd
 
 from autotrader.backtest.metrics import annualized_sharpe, annualized_sortino
+from autotrader.config import RiskLimits
+from autotrader.risk.sizing import position_size
 from autotrader.strategy.base import Side, Signal, SignalSet, Strategy
 
 
@@ -49,10 +51,11 @@ def _index_signals_by_date(signals: SignalSet) -> dict[str, dict[object, Signal]
 class _SignalDriven(bt.Strategy):
     """Acts on precomputed entry signals; manages stop/target/time exits per symbol."""
 
-    params = dict(signals={}, alloc_pct=0.1)
+    params = dict(signals={}, limits=None, alloc_pct=0.1)
 
     def __init__(self) -> None:
         self._sig = _index_signals_by_date(self.p.signals)
+        self._limits = self.p.limits
         # Per-data exit bookkeeping: data -> (entry_bar, stop, target, max_hold).
         self._open: dict[object, tuple[int, float, float, int]] = {}
 
@@ -71,7 +74,12 @@ class _SignalDriven(bt.Strategy):
 
     def _try_enter(self, data, sig: Signal) -> None:
         price = data.close[0]
-        size = int((self.broker.getvalue() * self.p.alloc_pct) / price)
+        equity = self.broker.getvalue()
+        # Shared sizer when the signal carries a valid stop; alloc fallback otherwise.
+        if self._limits is not None and sig.stop_loss is not None and sig.stop_loss < price:
+            size = position_size(equity, price, sig.stop_loss, self._limits)
+        else:
+            size = int((equity * self.p.alloc_pct) / price)
         if size < 1:
             return
         self.buy(data=data, size=size)
@@ -99,17 +107,24 @@ def run_backtest(
     starting_cash: float = 10_000.0,
     commission: float = 0.0,
     slippage_perc: float = 0.0005,
+    limits: RiskLimits | None = None,
     alloc_pct: float = 0.1,
 ) -> BacktestResult:
-    """Run ``strategy`` over ``bars`` and return headline metrics."""
+    """Run ``strategy`` over ``bars`` and return headline metrics.
+
+    Sizing uses the shared risk sizer (``limits``, default ``RiskLimits()``) so the
+    backtest sizes positions exactly as live will; ``alloc_pct`` is a fallback when a
+    signal lacks a stop.
+    """
     signals = strategy.generate(bars)
+    limits = limits or RiskLimits()
 
     cerebro = bt.Cerebro(stdstats=False)
     for symbol, df in bars.items():
         feed = bt.feeds.PandasData(dataname=df, openinterest=-1)
         cerebro.adddata(feed, name=symbol)
 
-    cerebro.addstrategy(_SignalDriven, signals=signals, alloc_pct=alloc_pct)
+    cerebro.addstrategy(_SignalDriven, signals=signals, limits=limits, alloc_pct=alloc_pct)
     cerebro.broker.setcash(starting_cash)
     cerebro.broker.setcommission(commission=commission)
     if slippage_perc:
