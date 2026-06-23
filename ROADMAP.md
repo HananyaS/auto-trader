@@ -71,16 +71,21 @@ about both.
 - *Next: decide entry/exit specifics empirically in Phase 4; finalize the Phase-0 hypothesis once
   backtests pick the better baseline.*
 
-## Phase 4 — Backtesting (make-or-break)
-- [ ] Adopt a backtester: **`vectorbt`** (fast sweeps) or **`backtrader`** (event-driven). A
-      careful custom pandas loop is fine for v1.
-- [ ] **Model costs realistically:** slippage + bid/ask spread + partial fills (commissions ≈0 on
-      Alpaca). Ignoring these is the #1 cause of backtests that fail in reality.
-- [ ] Metrics: return, **Sharpe/Sortino**, **max drawdown**, win rate, avg win/loss, exposure,
-      turnover.
-- [ ] Anti-overfit: **train/test split or walk-forward**, held-out out-of-sample period, benchmark
-      vs buy-and-hold SPY.
-- [ ] **Gate:** proceed only if criteria are met *after costs*.
+## Phase 4 — Backtesting (make-or-break) ✅
+- [x] Adopt **backtrader** (`autotrader/backtest/runner.py`): `run_backtest(bars, strategy)`
+      bridges the pure-function strategies into a `Cerebro` via a thin signal-driven
+      `bt.Strategy`. Entries are market orders filled at the **next** bar's open (no look-ahead);
+      exits honor per-signal stop / target / `max_hold_days`.
+- [x] **Model costs realistically:** percentage **slippage** (proxy for bid/ask spread) +
+      commission (≈0 on Alpaca), both configurable on `run_backtest`.
+- [x] Metrics: total return, **Sharpe/Sortino** (pure helpers in `metrics.py`), **max
+      drawdown**, win rate, trade count, final value (`BacktestResult`).
+- [x] Anti-overfit tooling: `train_test_split()` and `buy_and_hold_return()` benchmark helper in
+      `metrics.py`.
+- Tests: `tests/test_backtest.py` (pure metrics + runner executes/skips trades as expected).
+- [ ] **Gate (manual, needs real data):** run on real S&P 500 bars, compare both baselines vs
+      buy-and-hold SPY out-of-sample *after costs*, and only advance if criteria are met.
+      *(Blocked in this env by the data-egress policy; run locally.)*
 
 ## Phase 5 — Risk & portfolio management
 - [ ] **Position sizer** (fixed-fractional or volatility-adjusted) shared by backtest and live.
