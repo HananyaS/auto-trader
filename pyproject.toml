@@ -32,6 +32,9 @@ include = ["autotrader*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# QC LEAN algorithms target the QuantConnect runtime (star-imported globals like
+# QCAlgorithm/TradeBar); they're syntax-checked separately, not linted here.
+extend-exclude = ["quantconnect"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
