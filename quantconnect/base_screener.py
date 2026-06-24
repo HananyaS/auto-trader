@@ -47,9 +47,11 @@ class ScreenerAlgorithm(QCAlgorithm):  # noqa: F405
     """
 
     # --- tunables (override per strategy or via self.GetParameter) ---
-    universe_size = 200          # most-liquid names kept
+    # Broad coarse/fine universe over the WHOLE US market (survivorship-bias-free,
+    # point-in-time) — kept liquid enough to actually trade, incl. mid/small caps.
+    universe_size = 500          # most-liquid names kept after the liquidity floor
     min_price = 5.0              # avoid sub-$5 / penny stocks
-    min_dollar_volume = 1e7      # liquidity floor
+    min_dollar_volume = 5e6      # liquidity floor (lower -> reaches more mid/small caps)
     max_positions = 10           # concurrent positions
     risk_per_trade = 0.01        # equity risked per trade (entry-stop distance)
     max_position_pct = 0.10      # notional cap per position

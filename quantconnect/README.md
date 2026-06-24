@@ -43,6 +43,13 @@ hold-out, not faith). `pead.py` is a free-tier price/volume proxy for earnings r
 - `BrokerageName.InteractiveBrokersBrokerage` / `BrokerageName.Alpaca` — set the one you'll deploy to.
 - `self.History[TradeBar](...)`, `WarmUpIndicator`, `RollingWindow[TradeBar]`, `self.BB/RSI/SMA/ATR`.
 
+## Universe
+`base_screener.py` screens a **broad coarse/fine universe over the whole US market** — QC's
+survivorship-bias-free, point-in-time data — filtered only for tradeability (`min_price > $5`,
+`min_dollar_volume`), keeping the top `universe_size` (default 500) by dollar volume so mid/small
+caps are included. Override `_fine` to narrow by sector/market-cap, or the class tunables to widen
+or tighten liquidity.
+
 ## Notes / gotchas
 - **PDT rule**: under $25k a margin account is capped at 3 day-trades / 5 sessions. The 1–2 day
   holds avoid same-day round-trips; backtests use $100k so it's moot — mind it live.
