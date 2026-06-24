@@ -21,6 +21,7 @@ to run/search on QuantConnect's clean, survivorship-bias-free data.
 | `donchian_breakout.py` | Prior 20-day-high breakout (no vol filter) | momentum | re-test on QC |
 | `week52_breakout.py` | 52-week-high + RVOL≥1.5 | momentum | failed biased test — re-test |
 | `pead.py` | Post-earnings drift (gap+volume **proxy**) | event | re-test on QC |
+| `combined_screener.py` | **Ensemble** composite of the reversion/volume cluster (rsi2+bollinger+ibs+gap+ndaylow+volspike) | ensemble | mirrors our screener |
 
 The four **bold** strategies beat a random-entry null out-of-sample in this repo's local validation
 harness — evidence-backed starting points. The rest are well-known patterns included for the
