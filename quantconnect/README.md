@@ -7,19 +7,25 @@ to run/search on QuantConnect's clean, survivorship-bias-free data.
 > syntax-checked here; the real test is a QC backtest. Read **`methodology.md` before searching**
 > across strategies — it's what keeps you from "finding" an overfit winner.
 
-## What's here
+## What's here — a 10-strategy search batch (all free-tier price/volume)
 | File | Strategy | Bucket | Evidence |
 |---|---|---|---|
 | `base_screener.py` | Shared `ScreenerAlgorithm` spine (universe, schedule, sizing, exits) | — | — |
-| `rsi2_mean_reversion.py` | RSI(2) oversold + SMA200 trend filter | mean-reversion | beat our null |
-| `bollinger_reversion.py` | Lower-band poke + close back inside, uptrend | mean-reversion | beat our null |
-| `volume_spike_breakout.py` | 20-day-high breakout + RVOL≥2 | momentum | best Sharpe / null |
-| `gap_reversion.py` | Gap-down that starts to fill | mean-reversion | beat our null |
-| `momentum_xsection.py` | Cross-sectional 5-day momentum (top-N) | momentum | QC-enabled |
-| `pead.py` | Post-earnings drift (gap+volume **proxy**) | event | QC-enabled |
+| `rsi2_mean_reversion.py` | RSI(2) oversold + SMA200 trend filter | mean-reversion | **beat our null** |
+| `bollinger_reversion.py` | Lower-band poke + close back inside, uptrend | mean-reversion | **beat our null** |
+| `volume_spike_breakout.py` | 20-day-high breakout + RVOL≥2 | momentum | **best Sharpe / null** |
+| `gap_reversion.py` | Gap-down that starts to fill | mean-reversion | **beat our null** |
+| `ibs_mean_reversion.py` | Internal Bar Strength < 0.2, uptrend | mean-reversion | classic |
+| `ndaylow_reversal.py` | Lowest close of last N days, uptrend | mean-reversion | classic |
+| `momentum_xsection.py` | Cross-sectional 5-day momentum (top-N) | momentum | re-test on QC |
+| `donchian_breakout.py` | Prior 20-day-high breakout (no vol filter) | momentum | re-test on QC |
+| `week52_breakout.py` | 52-week-high + RVOL≥1.5 | momentum | failed biased test — re-test |
+| `pead.py` | Post-earnings drift (gap+volume **proxy**) | event | re-test on QC |
 
-The four "beat our null" strategies are the patterns that beat a random-entry null out-of-sample in
-this repo's local validation harness — evidence-backed starting points, not proven edges.
+The four **bold** strategies beat a random-entry null out-of-sample in this repo's local validation
+harness — evidence-backed starting points. The rest are well-known patterns included for the
+*search* (some failed our *biased* local data — re-test them on QC's clean data; judge on the
+hold-out, not faith). `pead.py` is a free-tier price/volume proxy for earnings reactions.
 
 ## How to run on QC
 1. New QC Python project → add each file (keep `base_screener.py`; strategies `import` from it).
